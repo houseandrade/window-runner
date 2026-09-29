@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#161923"><title>Window Runner — first playable</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#171a25;color:#f8e9d0;font-family:system-ui,-apple-system,Segoe UI,sans-serif;touch-action:none}canvas{display:block;width:100%;height:100%}button{font:inherit;color:inherit;border:0;cursor:pointer}.hud{position:absolute;top:env(safe-area-inset-top);left:0;right:0;padding:17px 18px;display:flex;align-items:center;gap:12px;pointer-events:none;text-shadow:0 2px 8px #111}.hud button{pointer-events:auto;background:#171c2aaa;border:1px solid #ffffff30;border-radius:50%;height:38px;width:38px}.title{font-size:11px;letter-spacing:.2em;font-weight:800}.spacer{flex:1}.progress{position:absolute;top:calc(env(safe-area-inset-top) + 63px);left:18px;right:18px;height:3px;background:#ffffff3b;border-radius:3px;overflow:hidden}.progress span{display:block;height:100%;width:0;background:#ffd287;box-shadow:0 0 8px #faba65}.gesture{position:absolute;bottom:calc(env(safe-area-inset-bottom) + 25px);left:0;right:0;text-align:center;font-size:11px;letter-spacing:.08em;color:#fff9;text-shadow:0 1px 5px #000;pointer-events:none}.screen{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:28px;background:linear-gradient(180deg,#151925bb,#151925e5);text-align:center}.card{max-width:380px}.eyebrow{font-size:11px;letter-spacing:.25em;text-transform:uppercase;color:#f4b979;font-weight:800}.card h1{font-size:clamp(42px,12vw,66px);line-height:.92;letter-spacing:-.07em;margin:16px 0 20px}.card p{line-height:1.55;color:#e5dbcd;margin:0 0 20px}.controls{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin:24px 0}.controls div{background:#ffffff12;border:1px solid #ffffff25;border-radius:10px;padding:12px 4px;font-size:11px}.controls b{display:block;color:#fff;font-size:15px;margin-bottom:4px}.primary{background:#f4bd78;color:#20202a;border-radius:30px;padding:14px 35px;font-weight:800;min-width:180px}.small{font-size:11px!important;opacity:.7;margin-top:18px!important}.hidden{display:none!important}.flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}.hint{position:absolute;top:calc(env(safe-area-inset-top) + 85px);left:18px;color:#ffe0ad;font-size:12px;letter-spacing:.08em;text-shadow:0 2px 5px #000;pointer-events:none}
+</style></head><body>
+<canvas id="game"></canvas><div class="hud"><div class="title">WINDOW RUNNER</div><div class="spacer"></div><button id="sound" aria-label="Toggle sound">♪</button><button id="pause" aria-label="Pause game">Ⅱ</button></div><div class="progress"><span id="bar"></span></div><div class="hint" id="hint"></div><div class="gesture" id="gesture">TAP · JUMP &nbsp; / &nbsp; SWIPE → · LONG &nbsp; / &nbsp; SWIPE ← · HIGH</div><div class="flash" id="flash"></div>
+<div class="screen" id="screen"><div class="card"><div class="eyebrow" id="eyebrow">A 90s car ride, remembered</div><h1 id="heading">Window<br>Runner</h1><p id="description">Keep the little runner in view as the neighborhood rolls past. One suburban stretch, from golden hour into dusk.</p><div class="controls"><div><b>Tap</b>Jump</div><div><b>Swipe →</b>Long flip</div><div><b>Swipe ←</b>High flip</div></div><button class="primary" id="start">START THE DRIVE</button><p class="small">Keyboard: Space / → + Space / ← + Space · P to pause</p></div></div>
+<script>
+(() => { 'use strict';
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d'),screen=document.getElementById('screen'),bar=document.getElementById('bar'),flash=document.getElementById('flash'),hint=document.getElementById('hint'),gesture=document.getElementById('gesture');
+const END=10950, CHECKS=[0,2200,4400,6600,8800], G=1250;
+let W=390,H=844,S=1,view=390,groundY=610,started=false,paused=true,finished=false,last=0,car=0,player,checkpoint=0,failTime=0,tipTime=0,clock=0,muted=false,audio=null,musicTimer=0,keys={};
+const gaps=[[1350,1428],[3070,3160],[4950,5050],[6970,7080],[9030,9130]];
+const types={mail:{w:27,h:46,color:'#a17765'},hedge:{w:66,h:36,color:'#344c43'},fence:{w:45,h:50,color:'#7d6664'},car:{w:114,h:47,color:'#657585'},wall:{w:72,h:72,color:'#736d72'},bin:{w:37,h:54,color:'#515d67'}};
+const obstacles=[];let seed=42;function rand(){seed=(seed*1664525+1013904223)>>>0;return seed/4294967296}
+for(let b=0;b<5;b++){
+  const base=340+b*2180; const pattern=[['mail',0],['hedge',310],['fence',600],['car',915],['mail',1240],['bin',1515],['wall',1810]];
+  pattern.forEach(([type,dx],i)=>obstacles.push({x:base+dx+(b>0?(rand()-.5)*35:0),type, ...types[type]}));
+}
+const houses=[];for(let x=-250;x<END+700;x+=210+rand()*140)houses.push({x,w:145+rand()*75,h:110+rand()*65,shade:rand(),roof:rand()});
+const trees=[];for(let x=50;x<END+500;x+=165+rand()*180)trees.push({x,h:120+rand()*105,r:rand()});
+function resize(){W=innerWidth;H=innerHeight;const dpr=Math.min(devicePixelRatio||1,2);canvas.width=Math.round(W*dpr);canvas.height=Math.round(H*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);S=Math.min(1.4,Math.max(.72,Math.min(W/390,H/680)));view=W/S;groundY=H*.73}
+addEventListener('resize',resize);resize();
+function reset(at=0){car=at;checkpoint=at;player={x:at+view*.05,y:groundY,vy:0,vx:0,on:true,flip:0,kind:'jump',step:0};failTime=0;clock=0;finished=false;bar.style.width=(at/END*100)+'%'}
+reset();
+function show(title,body,button,eyebrow){document.getElementById('heading').innerHTML=title;document.getElementById('description').textContent=body;document.getElementById('start').textContent=button;document.getElementById('eyebrow').textContent=eyebrow;screen.classList.remove('hidden');paused=true}
+function hide(){screen.classList.add('hidden');paused=false;started=true;last=performance.now();requestAnimationFrame(frame);ensureAudio()}
+document.getElementById('start').onclick=()=>{if(finished)reset();hide()};
+document.getElementById('pause').onclick=()=>{if(!started||finished)return;if(paused)hide();else show('Paused','The car waits. Take your time.','CONTINUE','On the roadside')};
+document.getElementById('sound').onclick=()=>{muted=!muted;document.getElementById('sound').textContent=muted?'♪̸':'♪';if(audio)audio.gain.gain.value=muted?0:.095};
+function note(freq,duration,type='sine',vol=.23){if(!audio||muted)return;let now=audio.ctx.currentTime,osc=audio.ctx.createOscillator(),gain=audio.ctx.createGain();osc.type=type;osc.frequency.value=freq;gain.gain.setValueAtTime(.0001,now);gain.gain.exponentialRampToValueAtTime(vol,now+.035);gain.gain.exponentialRampToValueAtTime(.0001,now+duration);osc.connect(gain).connect(audio.gain);osc.start(now);osc.stop(now+duration+.02)}
+function ensureAudio(){try{const Audio=window.AudioContext||window.webkitAudioContext;if(!Audio)return;if(!audio){let ac=new Audio();audio={ctx:ac,gain:ac.createGain()};audio.gain.gain.value=.095;audio.gain.connect(ac.destination)}audio.ctx.resume()?.catch(()=>{})}catch(e){audio=null}}
+function music(dt){musicTimer+=dt;if(musicTimer>.43){musicTimer=0;let n=Math.floor(clock/.43),notes=[220,329.63,392,329.63,196,293.66,369.99,293.66,174.61,261.63,329.63,261.63,196,293.66,349.23,293.66];note(notes[n%16],.8,'triangle',.12);if(n%4===0)note(notes[n%16]/2,1.6,'sine',.16)}}
+function speed(){let t=car/END;return 145+13*Math.sin(car/540)+10*t+(car>7700&&car<8200?-28:0)}
+function gapAt(x){return gaps.some(([a,b])=>x>=a&&x<=b)}
+function jump(kind){if(paused||failTime||finished||!player.on)return;player.on=false;player.kind=kind;player.flip=0;player.vy=kind==='high'?-635:kind==='long'?-440:-525;player.vx=kind==='long'?105:kind==='high'?-18:18;note(kind==='long'?440:kind==='high'?520:390,.19,'triangle',.26);hint.textContent=kind==='long'?'LONG FLIP':kind==='high'?'HIGH FLIP':'JUMP';tipTime=.5}
+let touch=null;canvas.addEventListener('pointerdown',e=>{if(paused)return;touch={x:e.clientX,y:e.clientY};canvas.setPointerCapture(e.pointerId)});canvas.addEventListener('pointerup',e=>{if(!touch)return;const dx=e.clientX-touch.x,dy=e.clientY-touch.y;touch=null;jump(Math.abs(dx)>32&&Math.abs(dx)>Math.abs(dy)*.75?(dx>0?'long':'high'):'jump')});
+addEventListener('keydown',e=>{if(['Space','ArrowLeft','ArrowRight','KeyP'].includes(e.code))e.preventDefault();keys[e.code]=true;if(e.repeat)return;if(e.code==='KeyP')document.getElementById('pause').click();if(e.code==='Space'||e.code==='ArrowUp')jump(keys.ArrowRight?'long':keys.ArrowLeft?'high':'jump')});addEventListener('keyup',e=>keys[e.code]=false);
+function fail(){if(failTime)return;failTime=.68;flash.style.opacity=.25;note(130,.35,'sawtooth',.17);hint.textContent='LOST THE WINDOW';tipTime=1}
+function update(dt){clock+=dt;music(dt);tipTime=Math.max(0,tipTime-dt);if(!tipTime)hint.textContent='';if(failTime){failTime-=dt;flash.style.opacity=Math.max(0,failTime*.35);if(failTime<=0){reset(checkpoint);hint.textContent='BACK AT THE LAST CROSSING';tipTime=1.2}return}
+ const prevY=player.y,prevX=player.x,wasOn=player.on,sp=speed();car+=sp*dt;
+ player.x+=(sp+player.vx)*dt;player.vx+=(0-player.vx)*Math.min(1,dt*(player.on?3:1.45));
+ if(!player.on){player.vy+=G*dt;player.y+=player.vy*dt;player.flip+=dt*(player.kind==='high'?-8:player.kind==='long'?8:0)}
+ const foot=player.y,oldFoot=prevY;
+ // Platforms and obstacles are solid from the side, and landable from above.
+ let landed=false;
+ for(const o of obstacles){if(player.x+9<o.x||player.x-9>o.x+o.w)continue;const top=groundY-o.h*S;
+   if(!wasOn&&player.vy>=0&&oldFoot<=top+6&&foot>=top){player.y=top;player.vy=0;player.on=true;landed=true;player.vx=Math.max(player.vx,9);note(155,.11,'sine',.1)}
+   else if(player.y>top+4&&player.y<groundY+3&&player.x>o.x-9&&prevX<=o.x-9){player.x=o.x-9;player.vx=Math.min(player.vx,0)}
+ }
+ if(!landed){let supported=false;
+   for(const o of obstacles)if(player.x>=o.x-5&&player.x<=o.x+o.w+5&&Math.abs(player.y-(groundY-o.h*S))<4&&player.vy>=0){supported=true;break}
+   if(!supported&&!gapAt(player.x)&&player.y>=groundY){player.y=groundY;player.vy=0;player.on=true;landed=true}
+   if(!supported&&!landed&&wasOn){player.on=false;player.vy=0}
+ }
+ if(player.on)player.step+=dt*13;else if(player.y>groundY+100*S)fail();
+ if(player.x<car-view*.32)fail();
+ if(player.x>car+view*.61){player.x=car+view*.61;player.vx=0}
+ for(const cp of CHECKS)if(car>cp+70&&cp>checkpoint)checkpoint=cp;
+ if(car>=END){finished=true;show('Made it<br>home.','The car comes to a stop. The runner is still there, just beyond the glass.','DRIVE AGAIN','End of the first drive')}
+ bar.style.width=Math.min(100,car/END*100)+'%';
+}
+function rect(x,y,w,h,c){ctx.fillStyle=c;ctx.fillRect(x,y,w,h)}
+function line(x1,y1,x2,y2,c,w=2){ctx.strokeStyle=c;ctx.lineWidth=w;ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke()}
+function sx(x,par=1){return W*.39+(x-car*par)*S} // world layers follow the moving car
+function draw(){let dusk=Math.min(1,car/END),sky=ctx.createLinearGradient(0,0,0,H);sky.addColorStop(0,dusk>.65?'#303a62':'#69728b');sky.addColorStop(.52,dusk>.65?'#a46d77':'#d5a176');sky.addColorStop(1,'#e7b77a');rect(0,0,W,H,sky);
+ // Sun, distant ridge, and layered suburban skyline.
+ ctx.fillStyle='#f8d49a88';ctx.beginPath();ctx.arc(W*.76,H*.38,51*S,0,7);ctx.fill();
+ ctx.fillStyle=dusk>.6?'#747084':'#aa8f87';ctx.beginPath();ctx.moveTo(0,groundY-105*S);for(let x=0;x<=W+30;x+=30)ctx.lineTo(x,groundY-(92+16*Math.sin(x*.015+car*.0006))*S);ctx.lineTo(W,groundY);ctx.lineTo(0,groundY);ctx.fill();
+ for(const h of houses){let x=sx(h.x,.59);if(x>W+250||x<-300)continue;let y=groundY-67*S-h.h*S*.48,w=h.w*S*.72,ht=h.h*S*.48;rect(x,y,w,ht,dusk>.55?'#626176':'#ad938a');ctx.fillStyle=dusk>.55?'#514b61':'#786a70';ctx.beginPath();ctx.moveTo(x-10*S,y);ctx.lineTo(x+w/2,y-32*S);ctx.lineTo(x+w+10*S,y);ctx.fill();rect(x+22*S,y+23*S,18*S,20*S,dusk>.55?'#e8b77d':'#696d76');rect(x+w-41*S,y+24*S,16*S,19*S,dusk>.55?'#d7a87e':'#77717a')}
+ for(const t of trees){let x=sx(t.x,.77);if(x<-80||x>W+80)continue;let y=groundY-40*S;rect(x-3*S,y-t.h*S*.48,6*S,t.h*S*.55,'#544e5b');ctx.fillStyle=dusk>.55?'#384756':'#52665f';for(let i=0;i<3;i++){ctx.beginPath();ctx.arc(x+(i-1)*15*S,y-t.h*S*.52+(i%2)*10*S,27*S,0,7);ctx.fill()}}
+ // Utility poles and cables form a continuous 90s roadside rhythm.
+ let begin=Math.floor((car-view)/370)*370;for(let x=begin;x<car+view*1.3;x+=370){let px=sx(x,.91);line(px,groundY-190*S,px,groundY-18*S,'#54505a',6*S);line(px-23*S,groundY-176*S,px+23*S,groundY-176*S,'#54505a',4*S);let nx=sx(x+370,.91);ctx.strokeStyle='#554e59';ctx.lineWidth=1.5*S;ctx.beginPath();ctx.moveTo(px,groundY-184*S);ctx.quadraticCurveTo((px+nx)/2,groundY-154*S,nx,groundY-184*S);ctx.stroke()}
+ // The road exists below the near-side path, like the sill of a car window.
+ rect(0,groundY+26*S,W,H-groundY,'#343a48');rect(0,groundY+30*S,W,4*S,'#edbd8999');let stripe=(-car*S*1.3)%(115*S);for(let x=stripe-115*S;x<W;x+=115*S)rect(x,groundY+91*S,58*S,3*S,'#d3bca288');
+ rect(0,groundY-10*S,W,35*S,'#79756f');rect(0,groundY-7*S,W,5*S,'#b7a094');
+ for(const [a,b] of gaps){let x=sx(a),width=(b-a)*S;if(x>W||x+width<0)continue;rect(x,groundY-11*S,width,43*S,'#303a45');rect(x,groundY+27*S,width,8*S,'#252c37');line(x,groundY-10*S,x,groundY+28*S,'#b2a091',3*S);line(x+width,groundY-10*S,x+width,groundY+28*S,'#b2a091',3*S)}
+ // Crossings show the checkpoint locations without a gamey flag.
+ for(const cp of CHECKS.slice(1)){let x=sx(cp);if(x<-100||x>W+100)continue;for(let i=0;i<4;i++)rect(x+i*20*S,groundY+39*S,11*S,35*S,'#d8c2a374')}
+ for(const o of obstacles){let x=sx(o.x);if(x>W+170||x+o.w*S<-20)continue;let y=groundY-o.h*S,w=o.w*S,h=o.h*S;
+  if(o.type==='mail'){rect(x+11*S,y+17*S,5*S,h-17*S,'#524c53');rect(x,y,w,23*S,'#796a69');rect(x+3*S,y+3*S,w-6*S,3*S,'#bca096');rect(x+22*S,y+15*S,9*S,3*S,'#b77966')}
+  else if(o.type==='hedge'){rect(x,y+8*S,w,h-8*S,'#344e48');for(let i=0;i<4;i++){ctx.fillStyle=i%2?'#476956':'#3e5b4e';ctx.beginPath();ctx.arc(x+(8+i*16)*S,y+14*S,16*S,0,7);ctx.fill()}}
+  else if(o.type==='fence'){for(let i=0;i<4;i++)rect(x+i*13*S,y,5*S,h,'#8d7166');rect(x,y+10*S,w,5*S,'#80655f');rect(x,y+35*S,w,5*S,'#80655f')}
+  else if(o.type==='car'){rect(x+4*S,y+20*S,w-8*S,h-20*S,'#657585');ctx.fillStyle='#657585';ctx.beginPath();ctx.moveTo(x+21*S,y+20*S);ctx.lineTo(x+36*S,y+3*S);ctx.lineTo(x+78*S,y+3*S);ctx.lineTo(x+92*S,y+20*S);ctx.fill();rect(x+40*S,y+7*S,32*S,12*S,'#9fa9a8');for(let i of [24,88]){ctx.fillStyle='#292f3d';ctx.beginPath();ctx.arc(x+i*S,groundY-2*S,10*S,0,7);ctx.fill()}}
+  else if(o.type==='wall'){rect(x,y,w,h,'#8e7773');for(let i=0;i<4;i++)line(x,y+i*18*S,x+w,y+i*18*S,'#a58e82',2*S);rect(x,y-4*S,w,7*S,'#b29a89')}
+  else {rect(x+3*S,y+7*S,w-6*S,h-7*S,'#526370');rect(x,y,w,9*S,'#89939a');rect(x+12*S,y+20*S,12*S,7*S,'#a8b7b4')}
+ }
+ // Runner: near-white ink with a dark stroke, as in the reference.
+ let px=sx(player.x),py=player.y,run=player.on?Math.sin(player.step):.2;ctx.save();ctx.translate(px,py);ctx.rotate(player.flip);ctx.lineCap='round';ctx.lineJoin='round';function limb(points,width=4.8){ctx.beginPath();ctx.moveTo(points[0][0]*S,points[0][1]*S);for(let i=1;i<points.length;i++)ctx.lineTo(points[i][0]*S,points[i][1]*S);ctx.strokeStyle='#24232b';ctx.lineWidth=(width+3)*S;ctx.stroke();ctx.strokeStyle='#fff9e8';ctx.lineWidth=width*S;ctx.stroke()}
+ ctx.beginPath();ctx.arc(0,-34*S,7*S,0,7);ctx.fillStyle='#fff9e8';ctx.fill();ctx.lineWidth=3*S;ctx.strokeStyle='#24232b';ctx.stroke();limb([[0,-26],[-3,-16],[3,-9]],6);limb([[-2,-21],[8,-17],[12+run*4,-12]],4);limb([[-2,-20],[-10,-15],[-13-run*3,-19]],4);limb([[3,-9],[10+run*7,-4],[16+run*10,0]],5);limb([[3,-9],[-7-run*7,-6],[-13-run*9,0]],5);ctx.restore();
+ // Subtle glass and car interior: the game remains outside the window.
+ let glare=ctx.createLinearGradient(0,0,W,H);glare.addColorStop(0,'#fff4d20b');glare.addColorStop(.7,'#ffffff00');glare.addColorStop(1,'#ebb18710');rect(0,0,W,H,glare);ctx.strokeStyle='#1e2431ad';ctx.lineWidth=10*S;ctx.beginPath();ctx.moveTo(0,3*S);ctx.quadraticCurveTo(W*.42,-7*S,W,15*S);ctx.stroke();ctx.fillStyle='#171d2bb8';ctx.beginPath();ctx.moveTo(0,H);ctx.lineTo(0,H-24*S);ctx.quadraticCurveTo(W*.5,H-36*S,W,H-18*S);ctx.lineTo(W,H);ctx.fill();
+ // Passing beneath an overpass makes the child's reflection briefly visible.
+ if(car>5400&&car<5700){let alpha=Math.sin((car-5400)/300*Math.PI)*.24;rect(0,0,W,H,`rgba(27,29,46,${alpha})`);ctx.strokeStyle=`rgba(246,216,193,${alpha*.7})`;ctx.lineWidth=7*S;ctx.beginPath();ctx.arc(W*.16,H*.32,34*S,0,7);ctx.stroke()}
+ }
+ function frame(now){if(paused)return;let dt=Math.min(.034,(now-last)/1000||.016);last=now;update(dt);draw();if(!paused)requestAnimationFrame(frame)}draw();
+})();
+</script></body></html>
